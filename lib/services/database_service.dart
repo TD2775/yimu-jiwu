@@ -114,6 +114,14 @@ class DatabaseService {
     await db.execute('CREATE INDEX idx_lendings_status ON lendings(status)');
     await db.execute('CREATE INDEX idx_lendings_item ON lendings(itemId)');
     await db.execute('CREATE INDEX idx_reminders_item ON reminders(itemId)');
+
+    // 设置表
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    ''');
   }
 
   static Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {

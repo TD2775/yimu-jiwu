@@ -40,6 +40,11 @@ class ItemDetailScreen extends StatelessWidget {
         title: Text(item.name),
         actions: [
           IconButton(
+            icon: const Icon(Icons.delete_outline, color: AppColors.danger),
+            tooltip: '删除物品',
+            onPressed: () => _confirmDelete(context, item),
+          ),
+          IconButton(
             icon: const Icon(Icons.edit_outlined),
             onPressed: () => Navigator.push(
               context,
@@ -162,8 +167,11 @@ class ItemDetailScreen extends StatelessWidget {
             _infoRow('购买日期', formatDate(item.purchaseDate)),
             if (item.price != null) ...[
               _infoRow('购入价格', formatPrice(item.price)),
-              if (item.extraCost != null && item.extraCost! > 0)
+              if (item.extraCost != null && item.extraCost! > 0) ...[
                 _infoRow('额外费用', formatPrice(item.extraCost)),
+                if (item.extraCostNote != null && item.extraCostNote!.isNotEmpty)
+                  _infoRow('费用说明', item.extraCostNote!),
+              ],
             ],
             _infoRow('存放位置', item.location ?? '未设置'),
             _infoRow('规格型号', item.specifications ?? '未设置'),
@@ -565,6 +573,27 @@ class ItemDetailScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+void _confirmDelete(BuildContext context, dynamic item) {
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('删除物品'),
+      content: Text('确定要删除「${item.name}」吗？'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+        TextButton(
+          onPressed: () {
+            context.read<ItemProvider>().deleteItem(item.id);
+            Navigator.pop(ctx);
+            Navigator.pop(context); // back to list
+          },
+          child: const Text('删除', style: TextStyle(color: AppColors.danger)),
+        ),
+      ],
+    ),
+  );
 }
 
 class _DateEntry {

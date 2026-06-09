@@ -17,18 +17,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _webdavUrlCtrl = TextEditingController();
   final _webdavUserCtrl = TextEditingController();
   final _webdavPassCtrl = TextEditingController();
+  bool _autoBackup = false;
 
   @override
   void initState() {
     super.initState();
-    _loadWebDAV();
+    _loadSettings();
   }
 
-  Future<void> _loadWebDAV() async {
+  Future<void> _loadSettings() async {
     _webdavUrlCtrl.text = await DatabaseService.getSetting('webdav_url') ?? '';
     _webdavUserCtrl.text = await DatabaseService.getSetting('webdav_user') ?? '';
     _webdavPassCtrl.text = await DatabaseService.getSetting('webdav_pass') ?? '';
-    if (mounted) setState(() {});
+    final v = await DatabaseService.getSetting('auto_backup');
+    if (mounted) setState(() => _autoBackup = v == '1');
+    if (_autoBackup) _startAutoBackup();
+  }
+
+  void _startAutoBackup() {
+    Future.delayed(const Duration(hours: 24), () {
+      if (mounted && _autoBackup) {
+        _backupNow();
+        _startAutoBackup();
+      }
+    });
   }
 
   @override
@@ -86,6 +98,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const SizedBox(width: 8),
               Expanded(child: OutlinedButton.icon(onPressed: _restoreNow, icon: const Icon(Icons.restore), label: const Text('恢复'), style: OutlinedButton.styleFrom(foregroundColor: AppColors.info))),
             ]),
+            const SizedBox(height: 8),
+            SwitchListTile(
+              title: const Text('自动定时备份', style: TextStyle(fontSize: 14)),
+              subtitle: const Text('开启后每24小时自动备份到 WebDAV', style: TextStyle(fontSize: 12)),
+              value: _autoBackup,
+              activeColor: AppColors.primary,
+              onChanged: (v) { setState(() => _autoBackup = v); DatabaseService.setSetting('auto_backup', v ? '1' : '0'); if (v) _startAutoBackup(); },
+            ),
             const SizedBox(height: 8),
             SizedBox(width: double.infinity, height: 38, child: OutlinedButton.icon(
               onPressed: _testConnection,

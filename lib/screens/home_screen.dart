@@ -201,22 +201,17 @@ class _SimpleItemList extends StatelessWidget {
                   Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     // 名称 + 状态 同行
                     Row(children: [Expanded(child: Text(item.name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.textPrimary), maxLines: 1, overflow: TextOverflow.ellipsis)), Container(padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3), decoration: BoxDecoration(color: AppColors.accent.withAlpha(25), borderRadius: BorderRadius.circular(10)), child: const Text('使用中', style: TextStyle(fontSize: 11, color: AppColors.accent, fontWeight: FontWeight.w600)))]),
-                    // 使用天数 + 日均成本
-                    if (item.usageDays > 0 || item.dailyCost != null)
+                    // 总价 使用X天 日均 同一行（总价在右边）
+                    if (item.totalCost != null || item.usageDays > 0 || item.dailyCost != null)
                       Padding(padding: const EdgeInsets.only(top: 4), child: Row(children: [
                         if (item.usageDays > 0) Text(item.usageText, style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
                         if (item.dailyCost != null) ...[const SizedBox(width: 10), Text('日均${formatDailyCost(item.dailyCost)}', style: const TextStyle(fontSize: 13, color: AppColors.primary, fontWeight: FontWeight.w500))],
+                        const Spacer(),
+                        if (item.totalCost != null) Text(formatPrice(item.totalCost), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.primary)),
                       ])),
-                    if (item.usageDays <= 0 && item.dailyCost == null && item.totalCost == null)
-                      const SizedBox(height: 4),
                     const SizedBox(height: 6),
                     Row(children: [if (item.purchaseChannel != null) ...[Icon(Icons.store_outlined, size: 12, color: AppColors.textHint), const SizedBox(width: 3), Text(item.purchaseChannel!, style: TextStyle(fontSize: 12, color: AppColors.textSecondary)), const SizedBox(width: 12)], if (item.warrantyExpiry != null) ...[Icon(Icons.shield_outlined, size: 12, color: AppColors.textHint), const SizedBox(width: 3), Text('${_warrantyTextShort(item.warrantyExpiry!)}后过保', style: TextStyle(fontSize: 12, color: AppColors.textSecondary))]]),
                   ])),
-                  // 右侧总价
-                  if (item.totalCost != null) ...[
-                    const SizedBox(width: 8),
-                    Center(child: Text(formatPrice(item.totalCost), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.primary))),
-                  ],
                 ])),
               );
             }),
@@ -225,12 +220,7 @@ class _SimpleItemList extends StatelessWidget {
   String _warrantyTextShort(DateTime d) {
     final dayDiff = d.difference(DateTime.now()).inDays;
     if (dayDiff < 0) return '已过期';
-    if (dayDiff < 30) return '${dayDiff}天';
-    if (dayDiff < 365) return '${(dayDiff / 30).floor()}个月${dayDiff % 30 > 0 ? '${dayDiff % 30}天' : ''}';
-    final years = (dayDiff / 365).floor();
-    final remaining = dayDiff % 365;
-    if (remaining == 0) return '${years}年';
-    return '${years}年${(remaining / 30).floor()}个月';
+    return '${dayDiff}天';
   }
 }
 
@@ -499,10 +489,31 @@ class _ItemCard extends StatelessWidget {
   final VoidCallback onTap;
   const _ItemCard({required this.item, required this.onTap});
 
+  void _deleteItem(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除物品'),
+        content: Text('确定要删除「${item.name}」吗？'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+          TextButton(
+            onPressed: () {
+              context.read<ItemProvider>().deleteItem(item.id);
+              Navigator.pop(ctx);
+            },
+            child: const Text('删除', style: TextStyle(color: AppColors.danger)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
+      onLongPress: () => _deleteItem(context),
       child: Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         // 左侧图片
         ClipRRect(borderRadius: BorderRadius.circular(8), child: item.imagePaths.isNotEmpty ? buildSmartImage(item.imagePaths.first, width: 64, height: 64) : _placeholder()),
@@ -515,11 +526,13 @@ class _ItemCard extends StatelessWidget {
             Container(padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3), decoration: BoxDecoration(color: AppColors.accent.withAlpha(25), borderRadius: BorderRadius.circular(10)), child: const Text('使用中', style: TextStyle(fontSize: 11, color: AppColors.accent, fontWeight: FontWeight.w600))),
           ]),
           const SizedBox(height: 2),
-          // 使用天数 + 日均成本
-          if (item.usageDays > 0 || item.dailyCost != null)
+          // 总价 使用X天 日均 同一行（总价在右边）
+          if (item.totalCost != null || item.usageDays > 0 || item.dailyCost != null)
             Padding(padding: const EdgeInsets.only(top: 4), child: Row(children: [
               if (item.usageDays > 0) Text(item.usageText, style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
               if (item.dailyCost != null) ...[const SizedBox(width: 10), Text('日均${formatDailyCost(item.dailyCost)}', style: const TextStyle(fontSize: 13, color: AppColors.primary, fontWeight: FontWeight.w500))],
+              const Spacer(),
+              if (item.totalCost != null) Text(formatPrice(item.totalCost), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.primary)),
             ])),
           const SizedBox(height: 6),
           // 购买渠道 + 过保时间
@@ -528,11 +541,6 @@ class _ItemCard extends StatelessWidget {
             if (item.warrantyExpiry != null) ...[Icon(Icons.shield_outlined, size: 12, color: AppColors.textHint), const SizedBox(width: 3), Text('${_warrantyText(item.warrantyExpiry!)}后过保', style: TextStyle(fontSize: 12, color: AppColors.textSecondary))],
           ]),
         ])),
-        // 右侧总价
-        if (item.totalCost != null) ...[
-          const SizedBox(width: 8),
-          Center(child: Text(formatPrice(item.totalCost), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.primary))),
-        ],
       ])),
     );
   }
@@ -541,7 +549,8 @@ class _ItemCard extends StatelessWidget {
 
   String _warrantyText(DateTime d) {
     final days = d.difference(DateTime.now()).inDays;
-    if (days < 0) return '已过期'; if (days < 30) return '${days}天'; if (days < 365) return '${days ~/ 30}个月'; return '${days}天';
+    if (days < 0) return '已过期';
+    return '${days}天';
   }
 }
 

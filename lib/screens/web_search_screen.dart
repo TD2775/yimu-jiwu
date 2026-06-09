@@ -22,6 +22,7 @@ class _WebSearchScreenState extends State<WebSearchScreen> {
     super.initState();
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setUserAgent('Mozilla/5.0 (Linux; Android 14; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36')
       ..setBackgroundColor(AppColors.bgPrimary)
       ..setNavigationDelegate(NavigationDelegate(
         onPageFinished: (_) { setState(() => _loading = false); Future.delayed(const Duration(milliseconds: 1500), _injectJS); },

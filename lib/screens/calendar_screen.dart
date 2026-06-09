@@ -113,10 +113,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   String _warrantyText(DateTime d) {
     final dayDiff = d.difference(DateTime.now()).inDays;
     if (dayDiff < 0) return '已过期';
-    if (dayDiff < 30) return '${dayDiff}天';
-    if (dayDiff < 365) return '${(dayDiff / 30).floor()}个月';
-    final years = (dayDiff / 365).floor();
-    return '${years}年';
+    return '${dayDiff}天';
   }
 }
 

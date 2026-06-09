@@ -35,6 +35,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
   String? _extraCostNote;
   DateTime? _purchaseDate = DateTime.now();
   String? _categoryId;
+  String? _subCategoryId;
   String? _coverImagePath;
 
   // 渠道 & 方式
@@ -79,6 +80,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
       _extraCostNote = i.extraCostNote;
       _purchaseDate = i.purchaseDate;
       _categoryId = i.categoryId;
+      _subCategoryId = i.subCategoryId;
       _imagePaths = List.from(i.imagePaths);
       _notes = i.notes ?? '';
       _purchaseChannel = i.purchaseChannel;
@@ -257,13 +259,33 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
   }
 
   void _showCategoryPicker(BuildContext context, ItemProvider provider) {
+    final subs = provider.subCategories.where((c) => c.parentId == _categoryId).toList();
+
     showModalBottomSheet(
       context: context, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-      builder: (ctx) => Padding(padding: const EdgeInsets.all(20), child: Column(mainAxisSize: MainAxisSize.min, children: [
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setSt) => Padding(padding: const EdgeInsets.all(20), child: Column(mainAxisSize: MainAxisSize.min, children: [
         const Text('选择分类', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
         const SizedBox(height: 16),
-        ...provider.categories.map((c) => ListTile(leading: Icon(_iconForCategory(provider, c.id), color: AppColors.primary), title: Text(c.name), trailing: _categoryId == c.id ? const Icon(Icons.check, color: AppColors.primary) : null, onTap: () { setState(() => _categoryId = c.id); Navigator.pop(ctx); })),
-      ])),
+        // 一级分类
+        ...provider.categories.map((c) => ListTile(
+          leading: Icon(_iconForCategory(provider, c.id), color: AppColors.primary),
+          title: Text(c.name),
+          trailing: _categoryId == c.id ? const Icon(Icons.check, color: AppColors.primary) : null,
+          onTap: () { setState(() { _categoryId = c.id; _subCategoryId = null; }); setSt(() {}); Navigator.pop(ctx); },
+        )),
+        // 如果有二级分类
+        if (subs.isNotEmpty) ...[
+          const Divider(), const SizedBox(height: 8),
+          const Text('二级分类', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.textSecondary)),
+          const SizedBox(height: 8),
+          ...subs.map((s) => ListTile(
+            dense: true,
+            title: Text(s.name, style: const TextStyle(fontSize: 14)),
+            trailing: _subCategoryId == s.id ? const Icon(Icons.check, color: AppColors.primary, size: 18) : null,
+            onTap: () { setState(() => _subCategoryId = s.id); Navigator.pop(ctx); },
+          )),
+        ],
+      ]))),
     );
   }
 
@@ -451,14 +473,25 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
         }).toList()),
 
         if (_warrantyUnit != 'forever') ...[
-          const SizedBox(height: 20),
-          // 数字步进器
+          const SizedBox(height: 16),
+          // 手动输入数字
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            IconButton.filled(onPressed: _warrantyValue > 1 ? () => setSheetState(() => _warrantyValue--) : null, icon: const Icon(Icons.remove)),
-            Padding(padding: const EdgeInsets.symmetric(horizontal: 24), child: Text('$_warrantyValue', style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold))),
-            IconButton.filled(onPressed: () => setSheetState(() => _warrantyValue++), icon: const Icon(Icons.add)),
+            SizedBox(
+              width: 120,
+              child: TextField(
+                controller: TextEditingController(text: '$_warrantyValue'),
+                keyboardType: TextInputType.number,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold, color: AppColors.primary),
+                decoration: const InputDecoration(border: InputBorder.none, hintText: '输入'),
+                onChanged: (v) {
+                  final n = int.tryParse(v);
+                  if (n != null && n > 0) setSheetState(() => _warrantyValue = n);
+                },
+              ),
+            ),
           ]),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Center(child: Text('${unitLabels[_warrantyUnit]}', style: const TextStyle(fontSize: 16))),
           const SizedBox(height: 8),
           if (_computedWarrantyExpiry != null) Center(child: Text('预计过保: ${DateFormat('yyyy-MM-dd').format(_computedWarrantyExpiry!)}', style: TextStyle(fontSize: 13, color: AppColors.textSecondary))),
@@ -537,7 +570,7 @@ class _AddEditItemScreenState extends State<AddEditItemScreen> {
         ..._imagePaths,
       ];
       final item = Item(
-        id: widget.item?.id ?? _uuid.v4(), name: _name.trim(), categoryId: _categoryId!,
+        id: widget.item?.id ?? _uuid.v4(), name: _name.trim(), categoryId: _categoryId!, subCategoryId: _subCategoryId,
         price: _price, extraCost: _extraCost, extraCostNote: _extraCostNote, purchaseDate: _purchaseDate, warrantyExpiry: effectiveExpiry,
         purchaseChannel: _purchaseChannel, purchaseMethod: _purchaseMethod,
         location: _locationCtrl.text.isEmpty ? null : _locationCtrl.text.trim(),
