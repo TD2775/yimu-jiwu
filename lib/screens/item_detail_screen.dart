@@ -15,18 +15,27 @@ class ItemDetailScreen extends StatelessWidget {
   const ItemDetailScreen({super.key, required this.itemId});
 
   void _confirmDelete(BuildContext context, Item item) {
+    final provider = context.read<ItemProvider>();
     showDialog(
       context: context,
-      builder: (dctx) => AlertDialog(
+      builder: (ctx) => AlertDialog(
         title: const Text('删除物品'),
         content: Text('确定要删除「${item.name}」吗？'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
           TextButton(
             onPressed: () async {
-              await context.read<ItemProvider>().deleteItem(item.id);
-              Navigator.pop(dctx);
-              Navigator.pop(context); // back to list
+              Navigator.pop(ctx);
+              try {
+                await provider.deleteItem(item.id);
+                if (context.mounted) Navigator.pop(context);
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('删除失败: $e')),
+                  );
+                }
+              }
             },
             child: const Text('删除', style: TextStyle(color: AppColors.danger)),
           ),

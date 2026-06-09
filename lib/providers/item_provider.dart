@@ -193,11 +193,12 @@ class ItemProvider extends ChangeNotifier {
   }
 
   Future<void> deleteItem(String id) async {
-    // 取消相关提醒通知
-    final reminders = await DatabaseService.getReminders(itemId: id);
-    for (var r in reminders) {
-      await NotificationService.cancelReminder(r);
-    }
+    try {
+      final reminders = await DatabaseService.getReminders(itemId: id);
+      for (var r in reminders) {
+        try { await NotificationService.cancelReminder(r); } catch (_) {}
+      }
+    } catch (_) {}
     await DatabaseService.deleteItem(id);
     await loadAll();
   }

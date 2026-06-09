@@ -503,23 +503,7 @@ class _ItemCard extends StatelessWidget {
   const _ItemCard({required this.item, required this.onTap});
 
   void _deleteItem(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('删除物品'),
-        content: Text('确定要删除「${item.name}」吗？'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-          TextButton(
-            onPressed: () async {
-              await context.read<ItemProvider>().deleteItem(item.id);
-              if (ctx.mounted) Navigator.pop(ctx);
-            },
-            child: const Text('删除', style: TextStyle(color: AppColors.danger)),
-          ),
-        ],
-      ),
-    );
+    _showDeleteDialog(context, item);
   }
 
   @override
@@ -605,13 +589,50 @@ class _ItemCompact extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 100),
       itemCount: items.length,
       separatorBuilder: (_,__) => const Divider(height: 1, indent: 16),
-      itemBuilder: (_, i) => ListTile(
-        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ItemDetailScreen(itemId: items[i].id))),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-        title: Text(items[i].name, style: const TextStyle(fontSize: 15)),
-        subtitle: Text(items[i].usageText, style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
-        trailing: Text(formatPrice(items[i].price), style: TextStyle(fontSize: 14, color: AppColors.primary, fontWeight: FontWeight.w500)),
-      ),
+      itemBuilder: (_, i) {
+        final item = items[i];
+        return ListTile(
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ItemDetailScreen(itemId: item.id))),
+          onLongPress: () => _showDeleteDialog(context, item),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+          title: Text(item.name, style: const TextStyle(fontSize: 15)),
+          subtitle: Text(item.usageText, style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+          trailing: Text(formatPrice(item.price), style: TextStyle(fontSize: 14, color: AppColors.primary, fontWeight: FontWeight.w500)),
+        );
+      },
     );
   }
+}
+
+void _showDeleteDialog(BuildContext context, Item item) {
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('删除物品'),
+      content: Text('确定要删除「${item.name}」吗？'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+        TextButton(
+          onPressed: () async {
+            Navigator.pop(ctx);
+            try {
+              await context.read<ItemProvider>().deleteItem(item.id);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('已删除'), duration: Duration(seconds: 1)),
+                );
+              }
+            } catch (e) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('删除失败: $e'), duration: const Duration(seconds: 2)),
+                );
+              }
+            }
+          },
+          child: const Text('删除', style: TextStyle(color: AppColors.danger)),
+        ),
+      ],
+    ),
+  );
 }
