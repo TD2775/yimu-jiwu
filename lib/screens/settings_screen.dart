@@ -130,107 +130,66 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('正在全量备份...')));
     try {
       final auth = base64Encode(utf8.encode('${_webdavUserCtrl.text.trim()}:${_webdavPassCtrl.text.trim()}'));
-      final ts = DateTime.now().millisecondsSinceEpoch;
       final baseUrl = base.replaceAll(RegExp(r'/$'), '');
 
-      /// 创建远程目录（含父目录），使用 WebDAV MKCOL
-      Future<void> _mkcol(String remotePath) async {
-        final parents = remotePath.split('/')..removeLast();
-        var folder = baseUrl;
-        for (final seg in parents) {
-          folder += '/$seg';
-          try {
-            final httpClient = HttpClient();
-            final mkReq = await httpClient.openUrl('MKCOL', Uri.parse(folder));
-            mkReq.headers.set('Authorization', 'Basic $auth');
-            mkReq.headers.set('Content-Length', '0');
-            final mkResp = await mkReq.close();
-            await mkResp.drain();
-            httpClient.close();
-          } catch (_) {}
-        }
-      }
+      // 123云盘 WebDAV 兼容：直接 PUT 单个备份文件到根目录
+      final backupName = 'yimu_backup.json';
+      final backupUri = Uri.parse('$baseUrl/$backupName');
 
-      /// 上传文件到远程路径
-      Future<void> _uploadFile(String remotePath, List<int> bytes) async {
-        await _mkcol(remotePath);
+      // 第 0 步：删除旧的备份文件（只保留最新一个）
+      try {
         final httpClient = HttpClient();
-        final uri = Uri.parse('$baseUrl/$remotePath');
-        final req = await httpClient.putUrl(uri);
-        req.headers.set('Authorization', 'Basic $auth');
-        req.headers.set('Content-Type', 'application/octet-stream');
-        req.add(bytes);
-        final resp = await req.close();
-        if (resp.statusCode >= 400) throw Exception('HTTP ${resp.statusCode}');
+        final delReq = await httpClient.openUrl('DELETE', backupUri);
+        delReq.headers.set('Authorization', 'Basic $auth');
+        final delResp = await delReq.close();
+        await delResp.drain();
         httpClient.close();
-      }
+      } catch (_) {}
 
-      /// 列出远程 yimu_backup_* 文件夹
-      Future<List<String>> _listBackups() async {
-        final httpClient = HttpClient();
-        final listReq = await httpClient.openUrl('PROPFIND', Uri.parse(baseUrl));
-        listReq.headers.set('Authorization', 'Basic $auth');
-        listReq.headers.set('Depth', '1');
-        final listResp = await listReq.close();
-        if (listResp.statusCode >= 400) {
-          httpClient.close();
-          return [];
-        }
-        final body = await listResp.transform(utf8.decoder).join();
-        httpClient.close();
-        final regex = RegExp(r'href>([^<]*yimu_backup_\d+)</href>');
-        final folders = <String>[];
-        for (final m in regex.allMatches(body)) {
-          final u = m.group(1)!.trim();
-          folders.add(u.startsWith('/') ? '$baseUrl$u' : u);
-        }
-        return folders;
-      }
-
-      /// 删除远程文件/文件夹
-      Future<void> _deleteRemote(String url) async {
-        try {
-          final httpClient = HttpClient();
-          final delReq = await httpClient.openUrl('DELETE', Uri.parse(url));
-          delReq.headers.set('Authorization', 'Basic $auth');
-          final delResp = await delReq.close();
-          await delResp.drain();
-          httpClient.close();
-        } catch (_) {}
-      }
-
-      // ---- 第 0 步：删除旧备份（只保留最新一个）----
-      final existing = await _listBackups();
-      if (existing.length >= 1) {
-        // 最新的保留，删除其余
-        existing.sort((a, b) => b.compareTo(a));
-        for (int i = 1; i < existing.length; i++) {
-          await _deleteRemote(existing[i]);
-        }
-      }
-
-      // ---- 第 1 步：上传数据库 ----
+      // 第 1 步：收集所有数据
       final db = await DatabaseService.database;
-      await db.close(); // flush
-      final dbPath = db.path;
-      final dbBytes = await File(dbPath).readAsBytes();
-      await _uploadFile('yimu_backup_$ts/database.db', dbBytes);
+      await db.close();
+      final dbBytes = await File(db.path).readAsBytes();
 
-      // ---- 第 2 步：上传所有物品图片 ----
+      // 收集图片
       final provider = context.read<ItemProvider>();
-      int imgCount = 0;
+      final images = <Map<String, String>>[];
       for (final item in provider.items) {
         for (final path in item.imagePaths) {
           final file = File(path);
           if (await file.exists()) {
-            final name = path.replaceAll(RegExp(r'[/\\:]'), '_');
-            await _uploadFile('yimu_backup_$ts/images/$name', await file.readAsBytes());
-            imgCount++;
+            images.add({
+              'path': path,
+              'data': base64Encode(await file.readAsBytes()),
+            });
           }
         }
       }
 
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('备份完成！数据库 + $imgCount 张图片')));
+      // 打包为 JSON
+      final backupJson = jsonEncode({
+        'db': base64Encode(dbBytes),
+        'images': images,
+        'timestamp': DateTime.now().toIso8601String(),
+        'version': '1.0',
+      });
+
+      // 第 2 步：上传单个备份文件
+      final httpClient = HttpClient();
+      final putReq = await httpClient.openUrl('PUT', backupUri);
+      putReq.headers.set('Authorization', 'Basic $auth');
+      putReq.headers.set('Content-Type', 'application/json; charset=utf-8');
+      putReq.add(utf8.encode(backupJson));
+      final putResp = await putReq.close();
+      final statusCode = putResp.statusCode;
+      httpClient.close();
+
+      if (statusCode >= 200 && statusCode < 300) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('备份成功！数据库 + ${images.length} 张图片'), backgroundColor: AppColors.accent));
+      } else {
+        throw Exception('HTTP $statusCode — 请检查 WebDAV 地址和权限');
+      }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('备份失败: $e'), duration: const Duration(seconds: 3)));
     }
@@ -245,82 +204,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final baseUrl = base.replaceAll(RegExp(r'/$'), '');
     final auth = base64Encode(utf8.encode('${_webdavUserCtrl.text.trim()}:${_webdavPassCtrl.text.trim()}'));
 
-    // Confirm
     final ok = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
-      title: const Text('恢复数据'), content: const Text('将从 WebDAV 恢复最新的备份到本地。\n当前数据将被覆盖。确定继续？'),
+      title: const Text('恢复数据'), content: const Text('将从 WebDAV 恢复备份。\n当前数据将被覆盖。确定继续？'),
       actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')), TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('确定恢复', style: TextStyle(color: AppColors.danger)))],
     ));
     if (ok != true) return;
 
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('正在恢复...')));
     try {
-      // 1. List backup folders via PROPFIND (depth 1)
       final httpClient = HttpClient();
-      final listReq = await httpClient.openUrl('PROPFIND', Uri.parse(baseUrl));
-      listReq.headers.set('Authorization', 'Basic $auth');
-      listReq.headers.set('Depth', '1');
-      final listResp = await listReq.close();
-      if (listResp.statusCode >= 400) throw Exception('无法列出目录: HTTP ${listResp.statusCode}');
-      final body = await listResp.transform(utf8.decoder).join();
 
-      // Extract folder names matching yimu_backup_*
-      final folders = <String>[];
-      final regex = RegExp(r'href>([^<]*yimu_backup_\d+)</href>');
-      for (final m in regex.allMatches(body)) {
-        final u = m.group(1)!.trim();
-        final name = u.endsWith('/') ? u.substring(0, u.length - 1) : u;
-        folders.add(name.split('/').last);
-      }
-      if (folders.isEmpty) throw Exception('未找到备份文件夹');
+      // 1. 下载单个备份 JSON 文件
+      final getReq = await httpClient.getUrl(Uri.parse('$baseUrl/yimu_backup.json'));
+      getReq.headers.set('Authorization', 'Basic $auth');
+      final getResp = await getReq.close();
+      if (getResp.statusCode >= 400) throw Exception('下载备份失败: HTTP ${getResp.statusCode}');
+      final body = await getResp.transform(utf8.decoder).join();
+      final backup = jsonDecode(body) as Map<String, dynamic>;
 
-      // Pick latest by timestamp
-      folders.sort((a, b) => b.compareTo(a));
-      final latest = folders.first;
-      final backupPath = '$baseUrl/$latest';
+      // 2. 恢复数据库
+      final dbBytes = base64Decode(backup['db'] as String);
+      final dbPath = (await DatabaseService.database).path;
+      final dbDir = dbPath.replaceAll(RegExp(r'[^/\\]+$'), '');
+      await DatabaseService.database.then((d) => d.close());
+      await File(dbPath).writeAsBytes(dbBytes);
 
-      // 2. Download database
-      final dbBytes = await _downloadFile(httpClient, '$backupPath/database.db', auth);
-      final dbDir = (await DatabaseService.database).path.replaceAll(RegExp(r'[^/\\]+$'), '');
-      final dbFile = File('${dbDir}yimu_restore.db');
-      await dbFile.writeAsBytes(dbBytes);
-
-      // 3. Download images
-      final imgListReq = await httpClient.openUrl('PROPFIND', Uri.parse('$backupPath/images'));
-      imgListReq.headers.set('Authorization', 'Basic $auth');
-      imgListReq.headers.set('Depth', '1');
-      final imgListResp = await imgListReq.close();
-      final imgBody = await imgListResp.transform(utf8.decoder).join();
-      final imgRegex = RegExp(r'href>([^<]+images/[^<]+)</href>');
-      final imgPaths = <String>{};
-      for (final m in imgRegex.allMatches(imgBody)) {
-        final p = m.group(1)!.trim();
-        if (!p.endsWith('/')) imgPaths.add(p);
-      }
-
-      final tmpDir = await Directory.systemTemp.createTemp('yimu_restore_');
+      // 3. 恢复图片
+      final images = (backup['images'] as List?) ?? [];
       int imgCount = 0;
-      for (final imgRel in imgPaths) {
+      for (final img in images) {
         try {
-          final bytes = await _downloadFile(httpClient, '$baseUrl/$imgRel', auth);
-          final local = File('${tmpDir.path}/${imgRel.split('/').last}');
-          await local.writeAsBytes(bytes);
+          final path = img['path'] as String;
+          final data = base64Decode(img['data'] as String);
+          final file = File(path);
+          await file.parent.create(recursive: true);
+          await file.writeAsBytes(data);
           imgCount++;
         } catch (_) {}
       }
 
-      // 4. Swap database and reload
-      await DatabaseService.database.then((d) => d.close());
-      final targetDb = File(dbDir + 'yimu_jiwu.db');
-      await dbFile.copy(targetDb.path);
-      await dbFile.delete();
-
-      final provider = context.read<ItemProvider>();
-      await provider.loadAll();
       httpClient.close();
 
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('恢复完成！数据库 + $imgCount 张图片。图片已保存到: ${tmpDir.path}')));
+      // 4. 重新加载
+      final provider = context.read<ItemProvider>();
+      await provider.loadAll();
+
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('恢复完成！数据库 + $imgCount 张图片'), backgroundColor: AppColors.accent));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('恢复失败: $e'), duration: const Duration(seconds: 4)));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('恢复失败: $e'), duration: const Duration(seconds: 4), backgroundColor: AppColors.danger));
     }
   }
 
