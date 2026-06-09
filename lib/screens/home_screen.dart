@@ -47,14 +47,27 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildBody(ItemProvider provider) {
     final list = provider.filteredItems;
-    if (list.isEmpty) return Center(child: Column(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.inventory_2_outlined, size: 64, color: AppColors.textHint), const SizedBox(height: 16), Text('还没有物品，点击 + 添加', style: TextStyle(color: AppColors.textSecondary, fontSize: 16))]));
 
-    switch (provider.displayMode) {
-      case 0: return _ItemList(items: list);
-      case 1: return _ItemGrid(items: list);
-      case 2: return _ItemCompact(items: list);
-      default: return _ItemList(items: list);
+    Widget content;
+    if (list.isEmpty) {
+      content = Center(child: Column(mainAxisSize: MainAxisSize.min,
+          children: [Icon(Icons.inventory_2_outlined, size: 64, color: AppColors.textHint),
+            const SizedBox(height: 16),
+            Text('还没有物品，点击 + 添加', style: TextStyle(color: AppColors.textSecondary, fontSize: 16))]));
+    } else {
+      switch (provider.displayMode) {
+        case 0: content = _ItemList(items: list); break;
+        case 1: content = _ItemGrid(items: list); break;
+        case 2: content = _ItemCompact(items: list); break;
+        default: content = _ItemList(items: list);
+      }
     }
+
+    return RefreshIndicator(
+      color: AppColors.primary,
+      onRefresh: () async { await provider.loadAll(); },
+      child: content,
+    );
   }
 
   void _showSortSheet(BuildContext context) {
@@ -498,9 +511,9 @@ class _ItemCard extends StatelessWidget {
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
           TextButton(
-            onPressed: () {
-              context.read<ItemProvider>().deleteItem(item.id);
-              Navigator.pop(ctx);
+            onPressed: () async {
+              await context.read<ItemProvider>().deleteItem(item.id);
+              if (ctx.mounted) Navigator.pop(ctx);
             },
             child: const Text('删除', style: TextStyle(color: AppColors.danger)),
           ),
