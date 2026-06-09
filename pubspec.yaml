@@ -1,0 +1,58 @@
+name: yimu_jiwu
+description: 一木记物 - 物品生命周期管理 App (Flutter 复刻版)
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+  flutter: '>=3.16.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  # 状态管理
+  provider: ^6.1.1
+  # 本地数据库
+  sqflite: ^2.3.0
+  path: ^1.8.3
+  # 通知
+  flutter_local_notifications: ^17.0.0
+  # 日历
+  table_calendar: ^3.0.9
+  # 图表
+  fl_chart: ^0.66.0
+  # 图片选择
+  image_picker: ^1.0.7
+  # 路径存储
+  path_provider: ^2.1.2
+  # UUID
+  uuid: ^4.2.1
+  # 国际化
+  intl: ^0.20.2
+  # 瀑布流
+  flutter_staggered_grid_view: ^0.7.0
+  # 分享/导出
+  share_plus: ^7.2.1
+  # 权限
+  permission_handler: ^11.3.0
+  # 时区
+  timezone: ^0.9.4
+  # URL 打开
+  url_launcher: ^6.3.0
+  # WebView
+  webview_flutter: ^4.8.0
+  # HTTP 客户端
+  http: ^1.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icons/
+    - assets/images/
