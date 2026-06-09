@@ -17,6 +17,12 @@ class DatabaseService {
     return _db!;
   }
 
+  static Future<void> forceReopen() async {
+    await _db?.close();
+    _db = null;
+    // 不自动打开：让下次调用 database 时自动 _init
+  }
+
   static Future<Database> _init() async {
     final dbPath = await getDatabasesPath();
     final path = p.join(dbPath, _dbName);

@@ -166,10 +166,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         httpClient.close();
       } catch (_) {}
 
-      // 第 1 步：收集所有数据
+      // 第 1 步：收集所有数据（先 flush 再读）
       final db = await DatabaseService.database;
+      final dbPath = db.path;
       await db.close();
-      final dbBytes = await File(db.path).readAsBytes();
+      final dbBytes = await File(dbPath).readAsBytes();
+      await DatabaseService.forceReopen(); // 重置单例，防止后续操作报 closed 错误
 
       // 收集图片
       final provider = context.read<ItemProvider>();
@@ -245,8 +247,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // 2. 恢复数据库
       final dbBytes = base64Decode(backup['db'] as String);
       final dbPath = (await DatabaseService.database).path;
-      final dbDir = dbPath.replaceAll(RegExp(r'[^/\\]+$'), '');
-      await DatabaseService.database.then((d) => d.close());
+      await DatabaseService.forceReopen(); // 先关闭并重置，避免写文件时有锁
       await File(dbPath).writeAsBytes(dbBytes);
 
       // 3. 恢复图片
