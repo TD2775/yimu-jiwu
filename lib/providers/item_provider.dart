@@ -255,6 +255,16 @@ class ItemProvider extends ChangeNotifier {
     await loadAll();
   }
 
+  /// 更新分类排序顺序
+  Future<void> reorderCategories(List<String> orderedIds) async {
+    for (int i = 0; i < orderedIds.length; i++) {
+      final cat = _categories.firstWhere((c) => c.id == orderedIds[i]);
+      final updated = cat.copyWith(sortOrder: i);
+      await DatabaseService.updateCategory(updated);
+    }
+    await loadAll();
+  }
+
   // ==================== 标签操作 ====================
 
   Future<void> addTag(Tag tag) async {

@@ -99,7 +99,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         // ---- 关于 ----
         Card(
           child: Column(children: [
-            const ListTile(leading: Icon(Icons.info_outline), title: Text('关于一木记物'), subtitle: Text('v1.0.0 · Flutter 复刻版')),
+            const ListTile(leading: Icon(Icons.info_outline), title: Text('关于一木记物'), subtitle: Text('v1.0.1 · Flutter 复刻版')),
           ]),
         ),
       ]),
@@ -133,22 +133,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final ts = DateTime.now().millisecondsSinceEpoch;
       final baseUrl = base.replaceAll(RegExp(r'/$'), '');
 
-      Future<void> uploadFile(String remotePath, List<int> bytes) async {
-        final httpClient = HttpClient();
-        // ensure folder exists — try MKCOL
+      /// 创建远程目录（含父目录），使用 WebDAV MKCOL
+      Future<void> _mkcol(String remotePath) async {
         final parents = remotePath.split('/')..removeLast();
         var folder = baseUrl;
         for (final seg in parents) {
           folder += '/$seg';
           try {
-            final mkReq = await httpClient.putUrl(Uri.parse(folder));
+            final httpClient = HttpClient();
+            final mkReq = await httpClient.openUrl('MKCOL', Uri.parse(folder));
             mkReq.headers.set('Authorization', 'Basic $auth');
             mkReq.headers.set('Content-Length', '0');
             final mkResp = await mkReq.close();
-            mkResp.drain(); // ignore
+            await mkResp.drain();
+            httpClient.close();
           } catch (_) {}
         }
+      }
 
+      /// 上传文件到远程路径
+      Future<void> _uploadFile(String remotePath, List<int> bytes) async {
+        await _mkcol(remotePath);
+        final httpClient = HttpClient();
         final uri = Uri.parse('$baseUrl/$remotePath');
         final req = await httpClient.putUrl(uri);
         req.headers.set('Authorization', 'Basic $auth');
@@ -159,14 +165,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
         httpClient.close();
       }
 
-      // 1. Upload database
+      /// 列出远程 yimu_backup_* 文件夹
+      Future<List<String>> _listBackups() async {
+        final httpClient = HttpClient();
+        final listReq = await httpClient.openUrl('PROPFIND', Uri.parse(baseUrl));
+        listReq.headers.set('Authorization', 'Basic $auth');
+        listReq.headers.set('Depth', '1');
+        final listResp = await listReq.close();
+        if (listResp.statusCode >= 400) {
+          httpClient.close();
+          return [];
+        }
+        final body = await listResp.transform(utf8.decoder).join();
+        httpClient.close();
+        final regex = RegExp(r'href>([^<]*yimu_backup_\d+)</href>');
+        final folders = <String>[];
+        for (final m in regex.allMatches(body)) {
+          final u = m.group(1)!.trim();
+          folders.add(u.startsWith('/') ? '$baseUrl$u' : u);
+        }
+        return folders;
+      }
+
+      /// 删除远程文件/文件夹
+      Future<void> _deleteRemote(String url) async {
+        try {
+          final httpClient = HttpClient();
+          final delReq = await httpClient.openUrl('DELETE', Uri.parse(url));
+          delReq.headers.set('Authorization', 'Basic $auth');
+          final delResp = await delReq.close();
+          await delResp.drain();
+          httpClient.close();
+        } catch (_) {}
+      }
+
+      // ---- 第 0 步：删除旧备份（只保留最新一个）----
+      final existing = await _listBackups();
+      if (existing.length >= 1) {
+        // 最新的保留，删除其余
+        existing.sort((a, b) => b.compareTo(a));
+        for (int i = 1; i < existing.length; i++) {
+          await _deleteRemote(existing[i]);
+        }
+      }
+
+      // ---- 第 1 步：上传数据库 ----
       final db = await DatabaseService.database;
       await db.close(); // flush
       final dbPath = db.path;
       final dbBytes = await File(dbPath).readAsBytes();
-      await uploadFile('yimu_backup_$ts/database.db', dbBytes);
+      await _uploadFile('yimu_backup_$ts/database.db', dbBytes);
 
-      // 2. Upload all images from all items
+      // ---- 第 2 步：上传所有物品图片 ----
       final provider = context.read<ItemProvider>();
       int imgCount = 0;
       for (final item in provider.items) {
@@ -174,7 +224,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           final file = File(path);
           if (await file.exists()) {
             final name = path.replaceAll(RegExp(r'[/\\:]'), '_');
-            await uploadFile('yimu_backup_$ts/images/$name', await file.readAsBytes());
+            await _uploadFile('yimu_backup_$ts/images/$name', await file.readAsBytes());
             imgCount++;
           }
         }

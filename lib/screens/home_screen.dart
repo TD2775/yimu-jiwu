@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/item.dart';
+import '../models/category.dart';
 import '../providers/item_provider.dart';
 import '../utils/constants.dart';
 import '../utils/helpers.dart';
@@ -200,18 +201,22 @@ class _SimpleItemList extends StatelessWidget {
                   Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     // 名称 + 状态 同行
                     Row(children: [Expanded(child: Text(item.name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: AppColors.textPrimary), maxLines: 1, overflow: TextOverflow.ellipsis)), Container(padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3), decoration: BoxDecoration(color: AppColors.accent.withAlpha(25), borderRadius: BorderRadius.circular(10)), child: const Text('使用中', style: TextStyle(fontSize: 11, color: AppColors.accent, fontWeight: FontWeight.w600)))]),
-                    // 总价 + 使用X天 + 日均 同一行
-                    if (item.totalCost != null)
+                    // 使用天数 + 日均成本
+                    if (item.usageDays > 0 || item.dailyCost != null)
                       Padding(padding: const EdgeInsets.only(top: 4), child: Row(children: [
-                        Text(formatPrice(item.totalCost), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.primary)),
-                        if (item.usageDays > 0) ...[const SizedBox(width: 10), Text(item.usageText, style: TextStyle(fontSize: 13, color: AppColors.textSecondary))],
+                        if (item.usageDays > 0) Text(item.usageText, style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
                         if (item.dailyCost != null) ...[const SizedBox(width: 10), Text('日均${formatDailyCost(item.dailyCost)}', style: const TextStyle(fontSize: 13, color: AppColors.primary, fontWeight: FontWeight.w500))],
                       ])),
-                    if (item.totalCost == null && item.usageDays > 0)
-                      Padding(padding: const EdgeInsets.only(top: 4), child: Text(item.usageText, style: TextStyle(fontSize: 13, color: AppColors.textSecondary))),
+                    if (item.usageDays <= 0 && item.dailyCost == null && item.totalCost == null)
+                      const SizedBox(height: 4),
                     const SizedBox(height: 6),
                     Row(children: [if (item.purchaseChannel != null) ...[Icon(Icons.store_outlined, size: 12, color: AppColors.textHint), const SizedBox(width: 3), Text(item.purchaseChannel!, style: TextStyle(fontSize: 12, color: AppColors.textSecondary)), const SizedBox(width: 12)], if (item.warrantyExpiry != null) ...[Icon(Icons.shield_outlined, size: 12, color: AppColors.textHint), const SizedBox(width: 3), Text('${_warrantyTextShort(item.warrantyExpiry!)}后过保', style: TextStyle(fontSize: 12, color: AppColors.textSecondary))]]),
                   ])),
+                  // 右侧总价
+                  if (item.totalCost != null) ...[
+                    const SizedBox(width: 8),
+                    Center(child: Text(formatPrice(item.totalCost), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.primary))),
+                  ],
                 ])),
               );
             }),
@@ -246,32 +251,70 @@ class _CategoryTabsState extends State<_CategoryTabs> {
 
   String? _selectedParent;
 
+  /// 按 sortOrder 排序的一级分类列表
+  List<_TabD> _buildParentTabs(ItemProvider provider) {
+    final items = provider.items;
+    final tabs = <_TabD>[];
+    tabs.add(_TabD(null, '所有物品', items.length));
+
+    // 收集有物品的分类ID，按 sortOrder 排序
+    final catIds = <String>{};
+    for (final item in items) {
+      catIds.add(item.categoryId);
+    }
+    final sortedCats = provider.categories
+        .where((c) => catIds.contains(c.id))
+        .toList()
+      ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+
+    for (final cat in sortedCats) {
+      final cnt = items.where((i) => i.categoryId == cat.id).length;
+      tabs.add(_TabD(cat.id, cat.name, cnt));
+    }
+    return tabs;
+  }
+
+  /// 按 sortOrder 排序的二级分类列表
+  List<_TabD> _buildSubTabs(ItemProvider provider) {
+    if (_selectedParent == null) return [];
+    final items = provider.items;
+    final subs = provider.subCategories
+        .where((c) => c.parentId == _selectedParent)
+        .toList()
+      ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+
+    return subs.map((sub) {
+      final cnt = items.where((i) => i.subCategoryId == sub.id).length;
+      return _TabD(sub.id, sub.name, cnt);
+    }).toList();
+  }
+
+  /// 长按弹出拖拽排序面板
+  Future<void> _showReorderSheet(ItemProvider provider) async {
+    // 只对有一级分类的情况
+    final cats = provider.categories.toList()
+      ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    if (cats.isEmpty) return;
+
+    final result = await showModalBottomSheet<List<String>>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => _CategoryReorderSheet(categories: cats),
+    );
+
+    if (result != null && result.length == cats.length) {
+      await provider.reorderCategories(result);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = widget.provider;
-    final items = provider.items;
-
-    // 一级分类
-    final parentTabs = <_TabD>[];
-    parentTabs.add(_TabD(null, '所有物品', items.length));
-    final seen = <String>{};
-    for (final item in items) {
-      if (!seen.contains(item.categoryId)) {
-        seen.add(item.categoryId);
-        final cat = provider.categories.where((c) => c.id == item.categoryId).firstOrNull;
-        parentTabs.add(_TabD(item.categoryId, cat?.name ?? item.categoryId, items.where((i) => i.categoryId == item.categoryId).length));
-      }
-    }
-
-    // 二级分类
-    final subTabs = <_TabD>[];
-    if (_selectedParent != null) {
-      final subs = provider.subCategories.where((c) => c.parentId == _selectedParent).toList();
-      for (final sub in subs) {
-        final cnt = items.where((i) => i.subCategoryId == sub.id).length;
-        subTabs.add(_TabD(sub.id, sub.name, cnt));
-      }
-    }
+    final parentTabs = _buildParentTabs(provider);
+    final subTabs = _buildSubTabs(provider);
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -290,6 +333,9 @@ class _CategoryTabsState extends State<_CategoryTabs> {
                   ? _selectedParent == null && provider.filterCategoryId == null
                   : _selectedParent == t.id;
               return GestureDetector(
+                onLongPress: t.id != null
+                    ? () => _showReorderSheet(provider)
+                    : null,
                 onTap: () {
                   setState(() {
                     if (t.id == null) {
@@ -350,6 +396,91 @@ class _CategoryTabsState extends State<_CategoryTabs> {
     );
   }
 }
+// ========== 分类拖拽排序面板 ==========
+class _CategoryReorderSheet extends StatefulWidget {
+  final List<Category> categories;
+  const _CategoryReorderSheet({required this.categories});
+
+  @override
+  State<_CategoryReorderSheet> createState() => _CategoryReorderSheetState();
+}
+
+class _CategoryReorderSheetState extends State<_CategoryReorderSheet> {
+  late List<Category> _cats;
+
+  @override
+  void initState() {
+    super.initState();
+    _cats = List.from(widget.categories);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 12),
+          Container(width: 36, height: 4,
+            decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(2)),
+          ),
+          const SizedBox(height: 16),
+          const Text('拖拽排序分类', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          Text('长按拖拽调整分类显示顺序', style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+          const SizedBox(height: 12),
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.55,
+            ),
+            child: ReorderableListView.builder(
+              shrinkWrap: true,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: _cats.length,
+              onReorder: (oldIndex, newIndex) {
+                setState(() {
+                  if (newIndex > oldIndex) newIndex--;
+                  final item = _cats.removeAt(oldIndex);
+                  _cats.insert(newIndex, item);
+                });
+              },
+              itemBuilder: (_, i) {
+                final cat = _cats[i];
+                return ListTile(
+                  key: ValueKey(cat.id),
+                  leading: Icon(Icons.drag_handle, color: AppColors.textHint),
+                  title: Text(cat.name, style: const TextStyle(fontSize: 15)),
+                  trailing: Text('顺序 ${i + 1}', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () => Navigator.pop(context, _cats.map((c) => c.id).toList()),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                child: const Text('完成', style: TextStyle(fontSize: 16)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+  }
+}
+
 class _TabD { final String? id; final String label; final int count; _TabD(this.id, this.label, this.count); }
 
 // ========== 物品列表 (新 UI) ==========
@@ -376,7 +507,7 @@ class _ItemCard extends StatelessWidget {
         // 左侧图片
         ClipRRect(borderRadius: BorderRadius.circular(8), child: item.imagePaths.isNotEmpty ? buildSmartImage(item.imagePaths.first, width: 64, height: 64) : _placeholder()),
         const SizedBox(width: 12),
-        // 右侧信息
+        // 中间信息
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           // 第一行：名称 + 状态
           Row(children: [
@@ -384,12 +515,10 @@ class _ItemCard extends StatelessWidget {
             Container(padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3), decoration: BoxDecoration(color: AppColors.accent.withAlpha(25), borderRadius: BorderRadius.circular(10)), child: const Text('使用中', style: TextStyle(fontSize: 11, color: AppColors.accent, fontWeight: FontWeight.w600))),
           ]),
           const SizedBox(height: 2),
-          // 总价 + 使用X天 + 日均 同一行
-          if (item.totalCost != null || item.usageDays > 0)
+          // 使用天数 + 日均成本
+          if (item.usageDays > 0 || item.dailyCost != null)
             Padding(padding: const EdgeInsets.only(top: 4), child: Row(children: [
-              if (item.totalCost != null) Text(formatPrice(item.totalCost), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.primary)),
-              if (item.totalCost != null && item.usageDays > 0) ...[const SizedBox(width: 10), Text(item.usageText, style: TextStyle(fontSize: 13, color: AppColors.textSecondary))],
-              if (item.totalCost == null && item.usageDays > 0) Text(item.usageText, style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+              if (item.usageDays > 0) Text(item.usageText, style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
               if (item.dailyCost != null) ...[const SizedBox(width: 10), Text('日均${formatDailyCost(item.dailyCost)}', style: const TextStyle(fontSize: 13, color: AppColors.primary, fontWeight: FontWeight.w500))],
             ])),
           const SizedBox(height: 6),
@@ -399,6 +528,11 @@ class _ItemCard extends StatelessWidget {
             if (item.warrantyExpiry != null) ...[Icon(Icons.shield_outlined, size: 12, color: AppColors.textHint), const SizedBox(width: 3), Text('${_warrantyText(item.warrantyExpiry!)}后过保', style: TextStyle(fontSize: 12, color: AppColors.textSecondary))],
           ]),
         ])),
+        // 右侧总价
+        if (item.totalCost != null) ...[
+          const SizedBox(width: 8),
+          Center(child: Text(formatPrice(item.totalCost), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.primary))),
+        ],
       ])),
     );
   }
