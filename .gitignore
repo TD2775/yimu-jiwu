@@ -43,3 +43,9 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 /android/key.properties
+
+# 本地版本备份（git tag 管理版本）
+/versions/
+
+# APK 产物
+*.apk
