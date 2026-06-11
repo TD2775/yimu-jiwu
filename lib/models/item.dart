@@ -56,8 +56,9 @@ class Item {
   // ---------- 总成本 ----------
   double? get totalCost {
     final p = price;
-    if (p == null) return extraCost;
-    return p + (extraCost ?? 0);
+    final e = extraCost;
+    if (p == null && e == null) return null;
+    return (p ?? 0) + (e ?? 0);
   }
 
   // ---------- 计算属性 ----------
@@ -77,10 +78,12 @@ class Item {
 
   double? get dailyCost {
     final cost = totalCost;
-    if (cost == null || purchaseDate == null) return null;
+    if (cost == null || purchaseDate == null || cost <= 0) return null;
     final days = DateTime.now().difference(purchaseDate!).inDays;
-    if (days <= 0) return null;
+    if (days == 0) return cost; // 今天买的，日均 = 总价
+    if (days < 0) return null;
     final effectiveResidual = residualValue ?? _estimateResidualValue();
+    if (effectiveResidual >= cost) return cost / days; // 残值不低于总价时按无折旧算
     return (cost - effectiveResidual) / days;
   }
 
@@ -106,7 +109,7 @@ class Item {
   }
 
   double _estimateResidualValue() {
-    if (totalCost == null || purchaseDate == null) return 0;
+    if (totalCost == null || purchaseDate == null || totalCost! <= 0) return 0;
     final years = DateTime.now().difference(purchaseDate!).inDays / 365.0;
     if (years <= 1) return totalCost! * 0.7;
     if (years <= 3) return totalCost! * 0.4;
